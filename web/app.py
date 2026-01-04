@@ -1,5 +1,7 @@
 import os
 import ctypes
+import uuid
+from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, url_for
 
 app = Flask(__name__)
@@ -14,6 +16,17 @@ def add_header(response):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DLL_PATH = os.path.join(BASE_DIR, 'build', 'libgrading.dll')
 DATA_FILE = os.path.join(BASE_DIR, 'questions.txt')
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'web', 'static', 'uploads')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Load C Library
 try:
@@ -52,24 +65,29 @@ def load_questions():
         parts = line.split('|')
         if len(parts) >= 3:
             try:
-                questions.append({
+                q = {
                     'content': parts[0],
                     'answer': parts[1],
-                    'score': int(parts[2])
-                })
+                    'score': int(parts[2]),
+                    'image': ''
+                }
+                if len(parts) >= 4:
+                    q['image'] = parts[3]
+                questions.append(q)
             except ValueError:
                 continue
     return questions
 
-def save_question(content, answer, score):
+def save_question(content, answer, score, image=''):
     # Append with newline
     with open(DATA_FILE, 'a', encoding='utf-8') as f: # Use UTF-8 for consistency
-        f.write(f"\n{content}|{answer}|{score}")
+        f.write(f"\n{content}|{answer}|{score}|{image}")
 
 def save_all_questions(questions):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         for i, q in enumerate(questions):
-            line = f"{q['content']}|{q['answer']}|{q['score']}"
+            image = q.get('image', '')
+            line = f"{q['content']}|{q['answer']}|{q['score']}|{image}"
             if i < len(questions) - 1:
                 line += "\n"
             f.write(line)
@@ -87,7 +105,15 @@ def manage():
 def delete_question(index):
     questions = load_questions()
     if 0 <= index < len(questions):
-        questions.pop(index)
+        q = questions.pop(index)
+        # Delete image file if exists
+        if q.get('image'):
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], q['image'])
+            if os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                except:
+                    pass
         save_all_questions(questions)
     return redirect(url_for('manage'))
 
@@ -103,10 +129,32 @@ def edit_question(index):
         score = request.form.get('score')
         
         if content and answer and score:
+            image_filename = questions[index].get('image', '')
+            
+            # Handle image upload
+            if 'image' in request.files:
+                file = request.files['image']
+                if file and allowed_file(file.filename):
+                    # Delete old image if exists
+                    if image_filename:
+                        old_image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_filename)
+                        if os.path.exists(old_image_path):
+                            try:
+                                os.remove(old_image_path)
+                            except:
+                                pass
+                                
+                    filename = secure_filename(file.filename)
+                    # Generate unique filename to avoid collision
+                    unique_filename = str(uuid.uuid4()) + "_" + filename
+                    file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
+                    image_filename = unique_filename
+
             questions[index] = {
                 'content': content,
                 'answer': answer,
-                'score': int(score)
+                'score': int(score),
+                'image': image_filename
             }
             save_all_questions(questions)
             return redirect(url_for('manage'))
@@ -173,14 +221,27 @@ def add():
         contents = request.form.getlist('content[]')
         answers = request.form.getlist('answer[]')
         scores = request.form.getlist('score[]')
+        images = request.files.getlist('image[]')
         
         # If single item (old form style or single entry), getlist still works if name matches
         # If names were different, we'd need fallback. But we updated the template.
         
         if contents and answers and scores:
-            for c, a, s in zip(contents, answers, scores):
+            # Ensure images list matches length of other lists (it might not if empty inputs are not sent)
+            # Actually, file inputs always send a part, even if empty. So length should match.
+            
+            for i, (c, a, s) in enumerate(zip(contents, answers, scores)):
                 if c and a and s:
-                    save_question(c, a, s)
+                    image_filename = ''
+                    if i < len(images):
+                        file = images[i]
+                        if file and allowed_file(file.filename):
+                            filename = secure_filename(file.filename)
+                            unique_filename = str(uuid.uuid4()) + "_" + filename
+                            file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
+                            image_filename = unique_filename
+                            
+                    save_question(c, a, s, image_filename)
             return redirect(url_for('index'))
             
     return render_template('add.html')

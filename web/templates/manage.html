@@ -10,6 +10,7 @@
             <tr>
                 <th scope="col">#</th>
                 <th scope="col">题目描述</th>
+                <th scope="col">图片</th>
                 <th scope="col">标准答案</th>
                 <th scope="col">分值</th>
                 <th scope="col">操作</th>
@@ -20,6 +21,13 @@
             <tr>
                 <th scope="row">{{ loop.index }}</th>
                 <td>{{ q.content }}</td>
+                <td>
+                    {% if q.image %}
+                    <span class="badge bg-success">有图</span>
+                    {% else %}
+                    <span class="badge bg-secondary">无</span>
+                    {% endif %}
+                </td>
                 <td>{{ q.answer }}</td>
                 <td>{{ q.score }}</td>
                 <td>

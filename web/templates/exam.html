@@ -10,6 +10,11 @@
         </div>
         <div class="card-body">
             <h5 class="card-title">{{ q.content }}</h5>
+            {% if q.image %}
+            <div class="mb-3">
+                <img src="{{ url_for('static', filename='uploads/' + q.image) }}" class="img-fluid rounded" style="max-height: 300px;" alt="题目图片">
+            </div>
+            {% endif %}
             <div class="mb-3">
                 <label for="q_{{ loop.index0 }}" class="form-label">你的答案：</label>
                 <input type="text" class="form-control" id="q_{{ loop.index0 }}" name="q_{{ loop.index0 }}">
