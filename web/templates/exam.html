@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">在线考试</h2>
+<form method="POST" action="/exam">
+    {% for q in questions %}
+    <div class="card mb-3">
+        <div class="card-header">
+            题目 {{ loop.index }} ({{ q.score }} 分)
+        </div>
+        <div class="card-body">
+            <h5 class="card-title">{{ q.content }}</h5>
+            <div class="mb-3">
+                <label for="q_{{ loop.index0 }}" class="form-label">你的答案：</label>
+                <input type="text" class="form-control" id="q_{{ loop.index0 }}" name="q_{{ loop.index0 }}" required>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-warning">题库为空，请先添加题目！</div>
+    {% endfor %}
+    
+    {% if questions %}
+    <button type="submit" class="btn btn-success btn-lg">提交试卷</button>
+    {% endif %}
+</form>
+{% endblock %}

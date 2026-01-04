@@ -1,0 +1,3 @@
+C语言的作者是谁?|Dennis Ritchie|10
+Linux的创始人是谁?|Linus Torvalds|10
+HTTP协议默认端口是多少?|80|5

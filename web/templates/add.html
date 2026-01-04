@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">添加新题目</h2>
+<form method="POST" action="/add">
+    <div class="mb-3">
+        <label for="content" class="form-label">题目描述</label>
+        <input type="text" class="form-control" id="content" name="content" placeholder="例如：C语言的作者是谁？" required>
+        <div class="form-text">请不要包含 '|' 符号。</div>
+    </div>
+    <div class="mb-3">
+        <label for="answer" class="form-label">标准答案</label>
+        <input type="text" class="form-control" id="answer" name="answer" placeholder="例如：Dennis Ritchie" required>
+    </div>
+    <div class="mb-3">
+        <label for="score" class="form-label">分值</label>
+        <input type="number" class="form-control" id="score" name="score" value="10" required>
+    </div>
+    <button type="submit" class="btn btn-primary">保存题目</button>
+    <a href="/" class="btn btn-secondary">取消</a>
+</form>
+{% endblock %}
