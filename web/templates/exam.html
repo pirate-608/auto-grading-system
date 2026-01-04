@@ -29,4 +29,45 @@
     <button type="submit" class="btn btn-success btn-lg">提交试卷</button>
     {% endif %}
 </form>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. 防止后退 (简单的历史记录堆栈操作)
+        history.pushState(null, null, location.href);
+        window.onpopstate = function () {
+            history.go(1);
+        };
+
+        // 2. 防止意外刷新/关闭
+        window.onbeforeunload = function() {
+            return "您正在考试中，确定要离开吗？您的进度已保存在本地。";
+        };
+
+        // 3. 表单自动缓存
+        const inputs = document.querySelectorAll('input[type="text"]');
+        inputs.forEach(input => {
+            // 恢复缓存
+            const saved = localStorage.getItem('exam_' + input.id);
+            if (saved) {
+                input.value = saved;
+            }
+
+            // 监听输入并保存
+            input.addEventListener('input', function() {
+                localStorage.setItem('exam_' + this.id, this.value);
+            });
+        });
+
+        // 提交时清除缓存和警告
+        const form = document.querySelector('form');
+        if (form) {
+            form.addEventListener('submit', function() {
+                window.onbeforeunload = null;
+                inputs.forEach(input => {
+                    localStorage.removeItem('exam_' + input.id);
+                });
+            });
+        }
+    });
+</script>
 {% endblock %}

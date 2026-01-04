@@ -2,15 +2,33 @@ import os
 import ctypes
 import uuid
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 
 app = Flask(__name__)
+app.secret_key = 'auto_grading_system_secret_key'  # 设置 Secret Key 以启用 Session
 
 @app.after_request
 def add_header(response):
     # 尝试解决 ngrok 免费版拦截页面问题 (主要针对 API 调用或特定客户端)
     response.headers['ngrok-skip-browser-warning'] = 'true'
+    # 防止浏览器缓存页面 (对于考试页面很重要)
+    if 'exam' in request.path:
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
     return response
+
+@app.before_request
+def check_exam_mode():
+    # 如果用户处于考试模式
+    if session.get('in_exam'):
+        # 允许访问的端点：exam (考试页), static (静态资源)
+        # 注意：request.endpoint 在请求静态文件时可能是 'static'
+        if request.endpoint in ['exam', 'static']:
+            return
+        # 其他页面一律重定向回考试页
+        flash('考试进行中，无法访问其他页面！', 'warning')
+        return redirect(url_for('exam'))
 
 # Configuration
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -161,8 +179,17 @@ def edit_question(index):
             
     return render_template('edit.html', question=questions[index], index=index)
 
+@app.route('/start_exam')
+def start_exam():
+    session['in_exam'] = True
+    return redirect(url_for('exam'))
+
 @app.route('/exam', methods=['GET', 'POST'])
 def exam():
+    # 如果未开始考试且尝试访问考试页，重定向回首页
+    if not session.get('in_exam') and request.method == 'GET':
+        return redirect(url_for('index'))
+
     questions = load_questions()
     if request.method == 'POST':
         total_score = 0
@@ -209,7 +236,9 @@ def exam():
                 'score': score,
                 'full_score': q['score']
             })
-            
+        
+        # 考试结束，清除会话状态
+        session.pop('in_exam', None)
         return render_template('result.html', total_score=total_score, results=results)
     
     return render_template('exam.html', questions=questions)
