@@ -66,9 +66,30 @@ def save_question(content, answer, score):
     with open(DATA_FILE, 'a', encoding='utf-8') as f: # Use UTF-8 for consistency
         f.write(f"\n{content}|{answer}|{score}")
 
+def save_all_questions(questions):
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        for i, q in enumerate(questions):
+            line = f"{q['content']}|{q['answer']}|{q['score']}"
+            if i < len(questions) - 1:
+                line += "\n"
+            f.write(line)
+
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/manage')
+def manage():
+    questions = load_questions()
+    return render_template('manage.html', questions=questions)
+
+@app.route('/delete/<int:index>', methods=['POST'])
+def delete_question(index):
+    questions = load_questions()
+    if 0 <= index < len(questions):
+        questions.pop(index)
+        save_all_questions(questions)
+    return redirect(url_for('manage'))
 
 @app.route('/exam', methods=['GET', 'POST'])
 def exam():
@@ -113,12 +134,18 @@ def exam():
 @app.route('/add', methods=['GET', 'POST'])
 def add():
     if request.method == 'POST':
-        content = request.form.get('content')
-        answer = request.form.get('answer')
-        score = request.form.get('score')
+        # Handle list of values
+        contents = request.form.getlist('content[]')
+        answers = request.form.getlist('answer[]')
+        scores = request.form.getlist('score[]')
         
-        if content and answer and score:
-            save_question(content, answer, score)
+        # If single item (old form style or single entry), getlist still works if name matches
+        # If names were different, we'd need fallback. But we updated the template.
+        
+        if contents and answers and scores:
+            for c, a, s in zip(contents, answers, scores):
+                if c and a and s:
+                    save_question(c, a, s)
             return redirect(url_for('index'))
             
     return render_template('add.html')
