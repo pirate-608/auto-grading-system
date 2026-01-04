@@ -12,8 +12,8 @@
             <div class="card-body">
                 <div class="mb-3">
                     <label class="form-label">题目描述</label>
-                    <input type="text" class="form-control" name="content[]" placeholder="例如：C语言的作者是谁？" required>
-                    <div class="form-text">请不要包含 '|' 符号。</div>
+                    <textarea class="form-control" name="content[]" rows="3" placeholder="例如：C语言的作者是谁？" required></textarea>
+                    <div class="form-text">请不要包含 '|' 符号。支持多行输入。</div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">题目图片 (可选)</label>
@@ -58,7 +58,7 @@
             template.querySelector('.card-header span').textContent = '题目 ' + questionCount;
             
             // Clear inputs
-            template.querySelectorAll('input').forEach(input => {
+            template.querySelectorAll('input, textarea').forEach(input => {
                 if (input.name === 'score[]') {
                     input.value = '10';
                 } else {

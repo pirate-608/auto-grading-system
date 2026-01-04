@@ -1,21 +1,47 @@
 #include "common.h"
+#include <time.h>
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
+void clear_screen() {
+    #ifdef _WIN32
+        system("cls");
+    #else
+        system("clear");
+    #endif
+}
+
+void shuffle_questions(Question *array, int n) {
+    if (n > 1) {
+        for (int i = n - 1; i > 0; i--) {
+            int j = rand() % (i + 1);
+            Question t = array[i];
+            array[i] = array[j];
+            array[j] = t;
+        }
+    }
+}
+
 void start_exam() {
+    clear_screen();
     Question questions[MAX_QUESTIONS];
     int count = load_questions(DATA_FILE, questions);
 
     if (count == 0) {
-        printf("题库为空，请先在主菜单添加题目！\n");
+        printf(ANSI_COLOR_RED "题库为空，请先在主菜单添加题目！\n" ANSI_COLOR_RESET);
+        printf("按回车键返回...");
+        getchar();
         return;
     }
+
+    // 随机打乱题目顺序
+    shuffle_questions(questions, count);
 
     int total_score = 0;
     int max_score = 0;
 
-    printf("\n>>> 考试开始 (共 %d 题) <<<\n", count);
+    printf(ANSI_COLOR_CYAN "\n>>> 考试开始 (共 %d 题) <<<\n" ANSI_COLOR_RESET, count);
 
     for (int i = 0; i < count; i++) {
         // 1. 显示题目
@@ -37,8 +63,9 @@ void start_exam() {
     }
 
     // 4. 考试结束报告
-    printf("\n################ 成绩单 ################\n");
-    printf("最终得分: %d / %d\n", total_score, max_score);
+    clear_screen();
+    printf(ANSI_COLOR_MAGENTA "\n################ 成绩单 ################\n" ANSI_COLOR_RESET);
+    printf("最终得分: " ANSI_BOLD "%d" ANSI_COLOR_RESET " / %d\n", total_score, max_score);
     
     // 5. 显示错题
     display_wrong_questions(questions, count);
@@ -51,16 +78,19 @@ int main() {
 #ifdef _WIN32
     SetConsoleOutputCP(65001); // Set console output to UTF-8
 #endif
+    srand(time(NULL)); // 初始化随机数种子
+
     char choice_str[10];
     int choice = 0;
 
     while (1) {
+        clear_screen();
         // 主菜单界面
-        printf("\n======= C语言自动评分系统 =======\n");
-        printf("1. 开始考试\n");
-        printf("2. 添加题目到题库\n");
-        printf("3. 退出系统\n");
-        printf("=================================\n");
+        printf(ANSI_COLOR_CYAN "\n======= C语言自动评分系统 =======\n" ANSI_COLOR_RESET);
+        printf(ANSI_COLOR_GREEN "1." ANSI_COLOR_RESET " 开始考试\n");
+        printf(ANSI_COLOR_GREEN "2." ANSI_COLOR_RESET " 添加题目到题库\n");
+        printf(ANSI_COLOR_GREEN "3." ANSI_COLOR_RESET " 退出系统\n");
+        printf(ANSI_COLOR_CYAN "=================================\n" ANSI_COLOR_RESET);
         printf("请选择操作 (1-3): ");
 
         get_user_input(choice_str, sizeof(choice_str));
@@ -74,10 +104,12 @@ int main() {
                 append_question_to_file(DATA_FILE);
                 break;
             case 3:
-                printf("感谢使用，再见！\n");
+                printf(ANSI_COLOR_YELLOW "感谢使用，再见！\n" ANSI_COLOR_RESET);
                 return 0;
             default:
-                printf("输入无效，请重新选择。\n");
+                printf(ANSI_COLOR_RED "输入无效，请重新选择。\n" ANSI_COLOR_RESET);
+                printf("按回车键继续...");
+                getchar();
         }
     }
 }

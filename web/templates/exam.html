@@ -9,7 +9,7 @@
             题目 {{ loop.index }} ({{ q.score }} 分)
         </div>
         <div class="card-body">
-            <h5 class="card-title">{{ q.content }}</h5>
+            <h5 class="card-title" style="white-space: pre-wrap;">{{ q.content }}</h5>
             {% if q.image %}
             <div class="mb-3">
                 <img src="{{ url_for('static', filename='uploads/' + q.image) }}" class="img-fluid rounded" style="max-height: 300px;" alt="题目图片">
@@ -22,7 +22,11 @@
         </div>
     </div>
     {% else %}
-    <div class="alert alert-warning">题库为空，请先添加题目！</div>
+    <div class="alert alert-warning">
+        <h4>题库为空</h4>
+        <p>目前还没有题目，请先去添加题目吧！</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary">返回首页</a>
+    </div>
     {% endfor %}
     
     {% if questions %}
@@ -30,6 +34,7 @@
     {% endif %}
 </form>
 
+{% if questions %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         // 1. 防止后退 (简单的历史记录堆栈操作)
@@ -70,4 +75,5 @@
         }
     });
 </script>
+{% endif %}
 {% endblock %}

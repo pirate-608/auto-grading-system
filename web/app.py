@@ -1,11 +1,17 @@
 import os
 import ctypes
 import uuid
+import json
+import random
+from datetime import datetime
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, url_for, session, flash
+from config import Config
+from utils.data_manager import DataManager
 
 app = Flask(__name__)
-app.secret_key = 'auto_grading_system_secret_key'  # 设置 Secret Key 以启用 Session
+app.config.from_object(Config)
+data_manager = DataManager(Config)
 
 @app.after_request
 def add_header(response):
@@ -30,85 +36,20 @@ def check_exam_mode():
         flash('考试进行中，无法访问其他页面！', 'warning')
         return redirect(url_for('exam'))
 
-# Configuration
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DLL_PATH = os.path.join(BASE_DIR, 'build', 'libgrading.dll')
-DATA_FILE = os.path.join(BASE_DIR, 'questions.txt')
-UPLOAD_FOLDER = os.path.join(BASE_DIR, 'web', 'static', 'uploads')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-
 def allowed_file(filename):
     return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+           filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
 
 # Load C Library
 try:
-    lib = ctypes.CDLL(DLL_PATH)
+    lib = ctypes.CDLL(Config.DLL_PATH)
     # int calculate_score(const char* user_ans, const char* correct_ans, int full_score);
     lib.calculate_score.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
     lib.calculate_score.restype = ctypes.c_int
-    print(f"Successfully loaded DLL from {DLL_PATH}")
+    print(f"Successfully loaded DLL from {Config.DLL_PATH}")
 except Exception as e:
     print(f"Error loading DLL: {e}")
     lib = None
-
-def load_questions():
-    questions = []
-    if not os.path.exists(DATA_FILE):
-        return questions
-    
-    lines = []
-    try:
-        # Try UTF-8 first (standard)
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-    except UnicodeDecodeError:
-        try:
-            # Try GB18030 (superset of GBK, common on Windows CN)
-            with open(DATA_FILE, 'r', encoding='gb18030') as f:
-                lines = f.readlines()
-        except UnicodeDecodeError:
-            # Fallback with replacement to avoid crash
-            with open(DATA_FILE, 'r', encoding='gb18030', errors='replace') as f:
-                lines = f.readlines()
-
-    for line in lines:
-        line = line.strip()
-        if not line: continue
-        parts = line.split('|')
-        if len(parts) >= 3:
-            try:
-                q = {
-                    'content': parts[0],
-                    'answer': parts[1],
-                    'score': int(parts[2]),
-                    'image': ''
-                }
-                if len(parts) >= 4:
-                    q['image'] = parts[3]
-                questions.append(q)
-            except ValueError:
-                continue
-    return questions
-
-def save_question(content, answer, score, image=''):
-    # Append with newline
-    with open(DATA_FILE, 'a', encoding='utf-8') as f: # Use UTF-8 for consistency
-        f.write(f"\n{content}|{answer}|{score}|{image}")
-
-def save_all_questions(questions):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        for i, q in enumerate(questions):
-            image = q.get('image', '')
-            line = f"{q['content']}|{q['answer']}|{q['score']}|{image}"
-            if i < len(questions) - 1:
-                line += "\n"
-            f.write(line)
 
 @app.route('/')
 def index():
@@ -116,12 +57,12 @@ def index():
 
 @app.route('/manage')
 def manage():
-    questions = load_questions()
+    questions = data_manager.load_questions()
     return render_template('manage.html', questions=questions)
 
 @app.route('/delete/<int:index>', methods=['POST'])
 def delete_question(index):
-    questions = load_questions()
+    questions = data_manager.load_questions()
     if 0 <= index < len(questions):
         q = questions.pop(index)
         # Delete image file if exists
@@ -132,12 +73,12 @@ def delete_question(index):
                     os.remove(image_path)
                 except:
                     pass
-        save_all_questions(questions)
+        data_manager.save_all_questions(questions)
     return redirect(url_for('manage'))
 
 @app.route('/edit/<int:index>', methods=['GET', 'POST'])
 def edit_question(index):
-    questions = load_questions()
+    questions = data_manager.load_questions()
     if not (0 <= index < len(questions)):
         return redirect(url_for('manage'))
     
@@ -174,7 +115,7 @@ def edit_question(index):
                 'score': int(score),
                 'image': image_filename
             }
-            save_all_questions(questions)
+            data_manager.save_all_questions(questions)
             return redirect(url_for('manage'))
             
     return render_template('edit.html', question=questions[index], index=index)
@@ -190,12 +131,37 @@ def exam():
     if not session.get('in_exam') and request.method == 'GET':
         return redirect(url_for('index'))
 
-    questions = load_questions()
+    questions = data_manager.load_questions()
+    
+    # 如果题库为空，清除考试状态并显示提示
+    if not questions:
+        session.pop('in_exam', None)
+        return render_template('exam.html', questions=[])
+
+    if request.method == 'GET':
+        # 随机化题目顺序并保存索引到 Session
+        indices = list(range(len(questions)))
+        random.shuffle(indices)
+        session['exam_indices'] = indices
+        shuffled_questions = [questions[i] for i in indices]
+        return render_template('exam.html', questions=shuffled_questions)
+
     if request.method == 'POST':
+        # 获取随机化后的索引
+        indices = session.get('exam_indices')
+        if not indices or len(indices) != len(questions):
+            # 如果 Session 丢失或题目数量变化，回退到默认顺序（或报错）
+            indices = list(range(len(questions)))
+        
         total_score = 0
         results = []
         
-        for i, q in enumerate(questions):
+        # 遍历提交的答案 (q_0, q_1, ...)
+        # 注意：前端显示的第 i 题，对应的是 indices[i] 指向的原始题目
+        for i, q_index in enumerate(indices):
+            if q_index >= len(questions): continue # 防止越界
+            
+            q = questions[q_index]
             user_ans = request.form.get(f'q_{i}', '')
             
             # Support multiple valid answers separated by ; or ；
@@ -237,11 +203,49 @@ def exam():
                 'full_score': q['score']
             })
         
+        # Save result to history
+        max_score = sum(q['score'] for q in questions)
+        exam_record = {
+            'id': str(uuid.uuid4()),
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'total_score': total_score,
+            'max_score': max_score,
+            'details': results
+        }
+        all_results = data_manager.load_results()
+        all_results.append(exam_record)
+        data_manager.save_results(all_results)
+
         # 考试结束，清除会话状态
         session.pop('in_exam', None)
+        session.pop('exam_indices', None)
         return render_template('result.html', total_score=total_score, results=results)
     
-    return render_template('exam.html', questions=questions)
+    return redirect(url_for('index'))
+
+@app.route('/history')
+def history():
+    results = data_manager.load_results()
+    # Sort by timestamp descending
+    results.sort(key=lambda x: x['timestamp'], reverse=True)
+    return render_template('history.html', results=results)
+
+@app.route('/history/delete/<result_id>', methods=['POST'])
+def delete_history(result_id):
+    results = data_manager.load_results()
+    results = [r for r in results if r['id'] != result_id]
+    data_manager.save_results(results)
+    flash('记录已删除', 'success')
+    return redirect(url_for('history'))
+
+@app.route('/history/view/<result_id>')
+def view_history(result_id):
+    results = data_manager.load_results()
+    record = next((r for r in results if r['id'] == result_id), None)
+    if not record:
+        flash('记录未找到', 'error')
+        return redirect(url_for('history'))
+    return render_template('result.html', total_score=record['total_score'], results=record['details'], is_history=True)
 
 @app.route('/add', methods=['GET', 'POST'])
 def add():
@@ -270,7 +274,7 @@ def add():
                             file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
                             image_filename = unique_filename
                             
-                    save_question(c, a, s, image_filename)
+                    data_manager.save_question(c, a, s, image_filename)
             return redirect(url_for('index'))
             
     return render_template('add.html')

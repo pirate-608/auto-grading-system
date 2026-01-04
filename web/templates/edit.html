@@ -5,8 +5,8 @@
 <form method="POST" action="{{ url_for('edit_question', index=index) }}" enctype="multipart/form-data">
     <div class="mb-3">
         <label for="content" class="form-label">题目描述</label>
-        <input type="text" class="form-control" id="content" name="content" value="{{ question.content }}" required>
-        <div class="form-text">请不要包含 '|' 符号。</div>
+        <textarea class="form-control" id="content" name="content" rows="5" required>{{ question.content }}</textarea>
+        <div class="form-text">请不要包含 '|' 符号。支持多行输入。</div>
     </div>
     <div class="mb-3">
         <label for="image" class="form-label">题目图片 (可选)</label>
