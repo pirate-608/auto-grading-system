@@ -130,6 +130,51 @@ python web/app.py
 3.  **管理员权限**：
     *   管理员拥有“题库管理”功能的访问权限。
     *   **获取方法**：目前需手动修改数据库。使用 SQLite 工具打开 `web/instance/data.db`，找到 `user` 表，将目标用户的 `is_admin` 字段设置为 `1` (True)。
+4.  **题库管理 (管理员)**：
+    *   **添加题目**：支持上传图片，图片会自动重命名并保存。
+    *   **编辑题目**：可以修改题目内容、答案、分数，也可以勾选“删除当前图片”来移除已上传的图片。
+    *   **删除题目**：在管理列表中直接删除题目。
+
+## 打包发布 (Windows)
+
+本系统支持使用 PyInstaller 将 Python Web 端打包为独立的 `.exe` 可执行文件，方便在没有 Python 环境的电脑上运行。
+
+### 1. 准备工作
+
+确保你已经创建了虚拟环境并安装了所有依赖（包括 `pyinstaller`）：
+
+```bash
+# 激活虚拟环境
+.\.venv\Scripts\Activate
+
+# 安装依赖
+pip install -r web/requirements.txt
+```
+
+### 2. 执行打包命令
+
+在项目根目录下运行以下命令：
+
+```bash
+pyinstaller --name auto_grader_web --onedir --add-data "web/templates;templates" --add-data "web/static;static" --add-binary "build/libgrading.dll;." --clean --noconfirm web/app.py
+```
+
+**参数说明**：
+*   `--onedir`: 生成文件夹模式 (推荐，启动快，易于排查问题)。
+*   `--add-data`: 打包 HTML 模板和静态资源。
+*   `--add-binary`: 打包 C 语言编译生成的 `libgrading.dll`。
+
+### 3. 运行程序
+
+打包完成后，生成的文件位于 `dist/auto_grader_web/` 目录下。
+
+1.  进入 `dist/auto_grader_web/` 文件夹。
+2.  (可选) 如果需要迁移旧题库，将 `questions.txt` 复制到该文件夹中。
+3.  双击 `auto_grader_web.exe` 启动服务。
+4.  程序会自动打开浏览器访问系统。
+
+**注意**：
+*   打包后的程序数据（数据库 `instance/data.db`、上传的图片 `uploads/`）会存储在程序同级目录下，方便备份和迁移。
 
 ## 公网访问 (Ngrok)
 

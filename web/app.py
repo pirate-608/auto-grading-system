@@ -6,9 +6,10 @@ import json
 import random
 import csv
 import io
+import mimetypes
 from datetime import datetime
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from config import Config
 from utils.data_manager import DataManager
@@ -59,9 +60,9 @@ def add_header(response):
 def check_exam_mode():
     # 如果用户处于考试模式
     if session.get('in_exam'):
-        # 允许访问的端点：exam (考试页), static (静态资源)
+        # 允许访问的端点：exam (考试页), static (静态资源), uploaded_file (上传的图片)
         # 注意：request.endpoint 在请求静态文件时可能是 'static'
-        if request.endpoint in ['exam', 'static']:
+        if request.endpoint in ['exam', 'static', 'uploaded_file']:
             return
         # 其他页面一律重定向回考试页
         flash('考试进行中，无法访问其他页面！', 'warning')
@@ -81,6 +82,10 @@ try:
 except Exception as e:
     print(f"Error loading DLL: {e}")
     lib = None
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/')
 def index():
@@ -197,24 +202,49 @@ def edit_question(id):
         if content and answer and score:
             image_filename = question.get('image', '')
             
+            # Handle delete image
+            if request.form.get('delete_image') == 'yes':
+                if image_filename:
+                    old_image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_filename)
+                    if os.path.exists(old_image_path):
+                        try:
+                            os.remove(old_image_path)
+                        except:
+                            pass
+                    image_filename = ''
+
             # Handle image upload
             if 'image' in request.files:
                 file = request.files['image']
-                if file and allowed_file(file.filename):
-                    # Delete old image if exists
-                    if image_filename:
-                        old_image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_filename)
-                        if os.path.exists(old_image_path):
-                            try:
-                                os.remove(old_image_path)
-                            except:
-                                pass
-                                
-                    filename = secure_filename(file.filename)
-                    # Generate unique filename to avoid collision
-                    unique_filename = str(uuid.uuid4()) + "_" + filename
-                    file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
-                    image_filename = unique_filename
+                if file:
+                    # Determine extension
+                    ext = ''
+                    if '.' in file.filename:
+                        ext = '.' + file.filename.rsplit('.', 1)[1].lower()
+                    
+                    # Check if allowed extension or image mimetype
+                    is_valid = False
+                    if ext and ext[1:] in Config.ALLOWED_EXTENSIONS:
+                        is_valid = True
+                    elif file.mimetype.startswith('image/'):
+                        is_valid = True
+                        if not ext:
+                            ext = mimetypes.guess_extension(file.mimetype) or '.jpg'
+                    
+                    if is_valid:
+                        # Delete old image if exists (and not already deleted above)
+                        if image_filename:
+                            old_image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_filename)
+                            if os.path.exists(old_image_path):
+                                try:
+                                    os.remove(old_image_path)
+                                except:
+                                    pass
+                                    
+                        unique_filename = str(uuid.uuid4()) + ext
+                        file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
+                        image_filename = unique_filename
+                        image_filename = unique_filename
 
             data_manager.update_question(
                 id,
@@ -468,11 +498,25 @@ def add():
                     image_filename = ''
                     if i < len(images):
                         file = images[i]
-                        if file and allowed_file(file.filename):
-                            filename = secure_filename(file.filename)
-                            unique_filename = str(uuid.uuid4()) + "_" + filename
-                            file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
-                            image_filename = unique_filename
+                        if file:
+                            # Determine extension
+                            ext = ''
+                            if '.' in file.filename:
+                                ext = '.' + file.filename.rsplit('.', 1)[1].lower()
+                            
+                            # Check if allowed extension or image mimetype
+                            is_valid = False
+                            if ext and ext[1:] in Config.ALLOWED_EXTENSIONS:
+                                is_valid = True
+                            elif file.mimetype.startswith('image/'):
+                                is_valid = True
+                                if not ext:
+                                    ext = mimetypes.guess_extension(file.mimetype) or '.jpg'
+                            
+                            if is_valid:
+                                unique_filename = str(uuid.uuid4()) + ext
+                                file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
+                                image_filename = unique_filename
                     
                     cat = categories[i] if i < len(categories) and categories[i] else '默认题集'
                     data_manager.save_question(c, a, int(s), image_filename, cat)
