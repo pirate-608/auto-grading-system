@@ -13,3 +13,6 @@ class Config:
     UPLOAD_FOLDER = os.path.join(BASE_DIR, 'web', 'static', 'uploads')
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max upload size
+
+    # Exam Settings
+    EXAM_DURATION_MINUTES = 60  # 考试时长（分钟）

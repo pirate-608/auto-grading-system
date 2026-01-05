@@ -28,6 +28,15 @@
                     <label class="form-label">分值</label>
                     <input type="number" class="form-control" name="score[]" value="10" required>
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">题目集/分类</label>
+                    <input type="text" class="form-control" name="category[]" list="categoryList" placeholder="例如：C语言基础" value="默认题集">
+                    <datalist id="categoryList">
+                        {% for cat in categories %}
+                        <option value="{{ cat }}">
+                        {% endfor %}
+                    </datalist>
+                </div>
             </div>
         </div>
     </div>

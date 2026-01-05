@@ -3,9 +3,11 @@ import ctypes
 import uuid
 import json
 import random
+import csv
+import io
 from datetime import datetime
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
 from config import Config
 from utils.data_manager import DataManager
 
@@ -113,45 +115,91 @@ def edit_question(index):
                 'content': content,
                 'answer': answer,
                 'score': int(score),
-                'image': image_filename
+                'image': image_filename,
+                'category': request.form.get('category', '默认题集')
             }
             data_manager.save_all_questions(questions)
             return redirect(url_for('manage'))
             
-    return render_template('edit.html', question=questions[index], index=index)
+    return render_template('edit.html', question=questions[index], index=index, categories=data_manager.get_categories())
+
+@app.route('/select_set')
+def select_set():
+    questions = data_manager.load_questions()
+    if not questions:
+        flash('题库为空，请先添加题目！', 'warning')
+        return redirect(url_for('index'))
+        
+    # Count questions per category
+    categories = {}
+    for q in questions:
+        cat = q.get('category', '默认题集')
+        categories[cat] = categories.get(cat, 0) + 1
+        
+    return render_template('select_set.html', categories=categories, total_count=len(questions))
 
 @app.route('/start_exam')
 def start_exam():
-    session['in_exam'] = True
-    return redirect(url_for('exam'))
+    # Redirect to selection page first
+    return redirect(url_for('select_set'))
 
 @app.route('/exam', methods=['GET', 'POST'])
 def exam():
-    # 如果未开始考试且尝试访问考试页，重定向回首页
-    if not session.get('in_exam') and request.method == 'GET':
+    # Check if category is selected via GET param (first entry)
+    category = request.args.get('category')
+    
+    # If starting new exam
+    if request.method == 'GET' and not session.get('in_exam'):
+        if not category:
+            return redirect(url_for('select_set'))
+        session['in_exam'] = True
+        session['start_time'] = datetime.now().timestamp()
+        session['exam_category'] = category # Store selected category
+
+    # Security check
+    if not session.get('in_exam'):
         return redirect(url_for('index'))
 
-    questions = data_manager.load_questions()
+    all_questions = data_manager.load_questions()
     
-    # 如果题库为空，清除考试状态并显示提示
-    if not questions:
+    # Filter questions based on session category
+    current_category = session.get('exam_category', 'all')
+    if current_category != 'all':
+        # We need to map filtered indices back to original indices for grading
+        # Or just store the filtered questions in session? 
+        # Better: Store original indices of the filtered questions
+        filtered_indices = [i for i, q in enumerate(all_questions) if q.get('category', '默认题集') == current_category]
+    else:
+        filtered_indices = list(range(len(all_questions)))
+
+    if not filtered_indices:
         session.pop('in_exam', None)
-        return render_template('exam.html', questions=[])
+        flash('该题集没有题目！', 'warning')
+        return redirect(url_for('select_set'))
 
     if request.method == 'GET':
-        # 随机化题目顺序并保存索引到 Session
-        indices = list(range(len(questions)))
-        random.shuffle(indices)
-        session['exam_indices'] = indices
-        shuffled_questions = [questions[i] for i in indices]
-        return render_template('exam.html', questions=shuffled_questions)
+        # Shuffle the filtered indices
+        random.shuffle(filtered_indices)
+        session['exam_indices'] = filtered_indices
+        
+        shuffled_questions = [all_questions[i] for i in filtered_indices]
+        
+        # Calculate remaining time
+        start_time = session.get('start_time', datetime.now().timestamp())
+        duration_sec = app.config['EXAM_DURATION_MINUTES'] * 60
+        elapsed = datetime.now().timestamp() - start_time
+        remaining_sec = max(0, int(duration_sec - elapsed))
+        
+        return render_template('exam.html', questions=shuffled_questions, remaining_sec=remaining_sec)
 
     if request.method == 'POST':
         # 获取随机化后的索引
         indices = session.get('exam_indices')
-        if not indices or len(indices) != len(questions):
-            # 如果 Session 丢失或题目数量变化，回退到默认顺序（或报错）
-            indices = list(range(len(questions)))
+        if not indices:
+             # Fallback if session lost
+             return redirect(url_for('index'))
+             
+        questions = all_questions # Use full list, indices point to this
         
         total_score = 0
         results = []
@@ -230,6 +278,33 @@ def history():
     results.sort(key=lambda x: x['timestamp'], reverse=True)
     return render_template('history.html', results=results)
 
+@app.route('/export_history')
+def export_history():
+    results = data_manager.load_results()
+    # Sort by timestamp descending
+    results.sort(key=lambda x: x['timestamp'], reverse=True)
+    
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow(['时间', '得分', '满分', '得分率'])
+    
+    for r in results:
+        score = r.get('total_score', 0)
+        max_s = r.get('max_score', 0)
+        percentage = f"{(score / max_s * 100):.1f}%" if max_s > 0 else "0.0%"
+        writer.writerow([r['timestamp'], score, max_s, percentage])
+        
+    output.seek(0)
+    
+    return Response(
+        output.getvalue().encode('utf-8-sig'), # BOM for Excel
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=exam_history.csv"}
+    )
+
 @app.route('/history/delete/<result_id>', methods=['POST'])
 def delete_history(result_id):
     results = data_manager.load_results()
@@ -254,15 +329,10 @@ def add():
         contents = request.form.getlist('content[]')
         answers = request.form.getlist('answer[]')
         scores = request.form.getlist('score[]')
+        categories = request.form.getlist('category[]')
         images = request.files.getlist('image[]')
         
-        # If single item (old form style or single entry), getlist still works if name matches
-        # If names were different, we'd need fallback. But we updated the template.
-        
         if contents and answers and scores:
-            # Ensure images list matches length of other lists (it might not if empty inputs are not sent)
-            # Actually, file inputs always send a part, even if empty. So length should match.
-            
             for i, (c, a, s) in enumerate(zip(contents, answers, scores)):
                 if c and a and s:
                     image_filename = ''
@@ -273,11 +343,14 @@ def add():
                             unique_filename = str(uuid.uuid4()) + "_" + filename
                             file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
                             image_filename = unique_filename
-                            
-                    data_manager.save_question(c, a, s, image_filename)
-            return redirect(url_for('index'))
+                    
+                    cat = categories[i] if i < len(categories) and categories[i] else '默认题集'
+                    data_manager.save_question(c, a, int(s), image_filename, cat)
             
-    return render_template('add.html')
+            flash('题目添加成功！', 'success')
+            return redirect(url_for('manage'))
+            
+    return render_template('add.html', categories=data_manager.get_categories())
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

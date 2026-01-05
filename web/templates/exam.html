@@ -1,7 +1,15 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h2 class="mb-4">在线考试</h2>
+<div class="d-flex justify-content-between align-items-center mb-4 sticky-top bg-white py-3 border-bottom">
+    <h2 class="mb-0">在线考试</h2>
+    {% if remaining_sec is defined %}
+    <div class="alert alert-primary mb-0 py-2 shadow-sm">
+        ⏳ 剩余时间：<span id="timer" class="fw-bold fs-5">加载中...</span>
+    </div>
+    {% endif %}
+</div>
+
 <form method="POST" action="/exam">
     {% for q in questions %}
     <div class="card mb-3">
@@ -73,6 +81,42 @@
                 });
             });
         }
+
+        // 倒计时逻辑
+        {% if remaining_sec is defined %}
+        let timeLeft = {{ remaining_sec }};
+        const timerDisplay = document.getElementById('timer');
+        
+        function updateTimer() {
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                timerDisplay.textContent = "00:00";
+                // 避免重复提交
+                if (!window.isSubmitting) {
+                    window.isSubmitting = true;
+                    alert("考试时间到！系统将自动提交试卷。");
+                    window.onbeforeunload = null; // 允许提交
+                    document.querySelector('form').submit();
+                }
+                return;
+            }
+            
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            
+            // 最后5分钟变红
+            if (timeLeft < 300) { 
+                timerDisplay.parentElement.classList.remove('alert-primary');
+                timerDisplay.parentElement.classList.add('alert-danger');
+            }
+            
+            timeLeft--;
+        }
+        
+        const timerInterval = setInterval(updateTimer, 1000);
+        updateTimer(); // 立即执行一次
+        {% endif %}
     });
 </script>
 {% endif %}

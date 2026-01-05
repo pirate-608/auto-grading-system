@@ -1,7 +1,14 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h2 class="mb-4">历史作答记录</h2>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>历史作答记录</h2>
+    {% if results %}
+    <a href="{{ url_for('export_history') }}" class="btn btn-success">
+        📥 导出 CSV
+    </a>
+    {% endif %}
+</div>
 
 {% if results %}
 <div class="table-responsive">
