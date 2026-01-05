@@ -8,12 +8,25 @@ import io
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from config import Config
 from utils.data_manager import DataManager
+from models import db, User
 
 app = Flask(__name__)
 app.config.from_object(Config)
+db.init_app(app)
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
 data_manager = DataManager(Config)
+data_manager.init_db(app)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 @app.after_request
 def add_header(response):
@@ -55,33 +68,109 @@ except Exception as e:
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    stats = data_manager.get_system_stats()
+    
+    user_charts = None
+    if current_user.is_authenticated:
+        user_charts = data_manager.get_user_dashboard_stats(current_user.id)
+        
+    return render_template('index.html', stats=stats, user_charts=user_charts)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        user = User.query.filter_by(username=username).first()
+        
+        if user and user.check_password(password):
+            login_user(user)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
+        else:
+            flash('用户名或密码错误', 'danger')
+            
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+        
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if password != confirm_password:
+            flash('两次输入的密码不一致', 'danger')
+            return redirect(url_for('register'))
+            
+        if data_manager.create_user(username, password):
+            flash('注册成功，请登录', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('用户名已存在', 'danger')
+            
+    return render_template('register.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('index'))
 
 @app.route('/manage')
+@login_required
 def manage():
-    questions = data_manager.load_questions()
-    return render_template('manage.html', questions=questions)
+    if not current_user.is_admin:
+        flash('您没有权限访问该页面', 'danger')
+        return redirect(url_for('index'))
+        
+    page = request.args.get('page', 1, type=int)
+    search = request.args.get('search', '')
+    category = request.args.get('category', '')
+    
+    pagination = data_manager.get_questions_paginated(page=page, per_page=10, search=search, category=category)
+    categories = data_manager.get_categories()
+    
+    return render_template('manage.html', 
+                         questions=pagination.items, 
+                         pagination=pagination,
+                         search=search,
+                         current_category=category,
+                         categories=categories)
 
-@app.route('/delete/<int:index>', methods=['POST'])
-def delete_question(index):
-    questions = data_manager.load_questions()
-    if 0 <= index < len(questions):
-        q = questions.pop(index)
-        # Delete image file if exists
-        if q.get('image'):
-            image_path = os.path.join(app.config['UPLOAD_FOLDER'], q['image'])
-            if os.path.exists(image_path):
-                try:
-                    os.remove(image_path)
-                except:
-                    pass
-        data_manager.save_all_questions(questions)
+@app.route('/delete/<int:id>', methods=['POST'])
+@login_required
+def delete_question(id):
+    if not current_user.is_admin:
+        flash('您没有权限执行此操作', 'danger')
+        return redirect(url_for('index'))
+        
+    image_filename = data_manager.delete_question(id)
+    # Delete image file if exists
+    if image_filename:
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_filename)
+        if os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except:
+                pass
     return redirect(url_for('manage'))
 
-@app.route('/edit/<int:index>', methods=['GET', 'POST'])
-def edit_question(index):
-    questions = data_manager.load_questions()
-    if not (0 <= index < len(questions)):
+@app.route('/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
+def edit_question(id):
+    if not current_user.is_admin:
+        flash('您没有权限执行此操作', 'danger')
+        return redirect(url_for('index'))
+        
+    question = data_manager.get_question(id)
+    if not question:
         return redirect(url_for('manage'))
     
     if request.method == 'POST':
@@ -90,7 +179,7 @@ def edit_question(index):
         score = request.form.get('score')
         
         if content and answer and score:
-            image_filename = questions[index].get('image', '')
+            image_filename = question.get('image', '')
             
             # Handle image upload
             if 'image' in request.files:
@@ -111,19 +200,20 @@ def edit_question(index):
                     file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
                     image_filename = unique_filename
 
-            questions[index] = {
-                'content': content,
-                'answer': answer,
-                'score': int(score),
-                'image': image_filename,
-                'category': request.form.get('category', '默认题集')
-            }
-            data_manager.save_all_questions(questions)
+            data_manager.update_question(
+                id,
+                content=content,
+                answer=answer,
+                score=int(score),
+                image=image_filename,
+                category=request.form.get('category', '默认题集')
+            )
             return redirect(url_for('manage'))
             
-    return render_template('edit.html', question=questions[index], index=index, categories=data_manager.get_categories())
+    return render_template('edit.html', question=question, id=id, categories=data_manager.get_categories())
 
 @app.route('/select_set')
+@login_required
 def select_set():
     questions = data_manager.load_questions()
     if not questions:
@@ -139,11 +229,13 @@ def select_set():
     return render_template('select_set.html', categories=categories, total_count=len(questions))
 
 @app.route('/start_exam')
+@login_required
 def start_exam():
     # Redirect to selection page first
     return redirect(url_for('select_set'))
 
 @app.route('/exam', methods=['GET', 'POST'])
+@login_required
 def exam():
     # Check if category is selected via GET param (first entry)
     category = request.args.get('category')
@@ -165,24 +257,24 @@ def exam():
     # Filter questions based on session category
     current_category = session.get('exam_category', 'all')
     if current_category != 'all':
-        # We need to map filtered indices back to original indices for grading
-        # Or just store the filtered questions in session? 
-        # Better: Store original indices of the filtered questions
-        filtered_indices = [i for i, q in enumerate(all_questions) if q.get('category', '默认题集') == current_category]
+        filtered_ids = [q['id'] for q in all_questions if q.get('category', '默认题集') == current_category]
     else:
-        filtered_indices = list(range(len(all_questions)))
+        filtered_ids = [q['id'] for q in all_questions]
 
-    if not filtered_indices:
+    if not filtered_ids:
         session.pop('in_exam', None)
         flash('该题集没有题目！', 'warning')
         return redirect(url_for('select_set'))
 
     if request.method == 'GET':
         # Shuffle the filtered indices
-        random.shuffle(filtered_indices)
-        session['exam_indices'] = filtered_indices
+        random.shuffle(filtered_ids)
+        session['exam_ids'] = filtered_ids
         
-        shuffled_questions = [all_questions[i] for i in filtered_indices]
+        # Retrieve question objects for the IDs
+        shuffled_questions = [q for q in all_questions if q['id'] in filtered_ids]
+        # Sort them to match the shuffled order in session['exam_ids']
+        shuffled_questions.sort(key=lambda x: filtered_ids.index(x['id']))
         
         # Calculate remaining time
         start_time = session.get('start_time', datetime.now().timestamp())
@@ -193,23 +285,21 @@ def exam():
         return render_template('exam.html', questions=shuffled_questions, remaining_sec=remaining_sec)
 
     if request.method == 'POST':
-        # 获取随机化后的索引
-        indices = session.get('exam_indices')
-        if not indices:
+        # 获取随机化后的ID列表
+        ids = session.get('exam_ids')
+        if not ids:
              # Fallback if session lost
              return redirect(url_for('index'))
              
-        questions = all_questions # Use full list, indices point to this
-        
         total_score = 0
         results = []
         
         # 遍历提交的答案 (q_0, q_1, ...)
-        # 注意：前端显示的第 i 题，对应的是 indices[i] 指向的原始题目
-        for i, q_index in enumerate(indices):
-            if q_index >= len(questions): continue # 防止越界
+        for i, q_id in enumerate(ids):
+            # Find question by ID
+            q = next((item for item in all_questions if item['id'] == q_id), None)
+            if not q: continue
             
-            q = questions[q_index]
             user_ans = request.form.get(f'q_{i}', '')
             
             # Support multiple valid answers separated by ; or ；
@@ -224,9 +314,6 @@ def exam():
                 current_score = 0
                 # Use C function for grading if available
                 if lib:
-                    # Encode strings to bytes for C (GBK for Windows C app compatibility usually)
-                    # But grading.c uses tolower which works on ASCII. 
-                    # If Chinese characters are involved, simple byte comparison works if encoding matches.
                     try:
                         b_user = user_ans.encode('gbk')
                         b_correct = correct_ans.encode('gbk')
@@ -252,7 +339,10 @@ def exam():
             })
         
         # Save result to history
-        max_score = sum(q['score'] for q in questions)
+        # Calculate max score based on the questions in this exam
+        exam_questions = [q for q in all_questions if q['id'] in ids]
+        max_score = sum(q['score'] for q in exam_questions)
+        
         exam_record = {
             'id': str(uuid.uuid4()),
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -260,27 +350,31 @@ def exam():
             'max_score': max_score,
             'details': results
         }
-        all_results = data_manager.load_results()
-        all_results.append(exam_record)
-        data_manager.save_results(all_results)
+        
+        data_manager.save_exam_result(exam_record, user_id=current_user.id)
 
         # 考试结束，清除会话状态
         session.pop('in_exam', None)
-        session.pop('exam_indices', None)
+        session.pop('exam_ids', None)
         return render_template('result.html', total_score=total_score, results=results)
     
     return redirect(url_for('index'))
 
 @app.route('/history')
+@login_required
 def history():
-    results = data_manager.load_results()
+    # If admin, show all results; otherwise show only own results
+    user_id = None if current_user.is_admin else current_user.id
+    results = data_manager.load_results(user_id=user_id)
     # Sort by timestamp descending
     results.sort(key=lambda x: x['timestamp'], reverse=True)
     return render_template('history.html', results=results)
 
 @app.route('/export_history')
+@login_required
 def export_history():
-    results = data_manager.load_results()
+    user_id = None if current_user.is_admin else current_user.id
+    results = data_manager.load_results(user_id=user_id)
     # Sort by timestamp descending
     results.sort(key=lambda x: x['timestamp'], reverse=True)
     
@@ -289,13 +383,14 @@ def export_history():
     writer = csv.writer(output)
     
     # Header
-    writer.writerow(['时间', '得分', '满分', '得分率'])
+    writer.writerow(['用户', '时间', '得分', '满分', '得分率'])
     
     for r in results:
         score = r.get('total_score', 0)
         max_s = r.get('max_score', 0)
         percentage = f"{(score / max_s * 100):.1f}%" if max_s > 0 else "0.0%"
-        writer.writerow([r['timestamp'], score, max_s, percentage])
+        username = r.get('username', 'Unknown')
+        writer.writerow([username, r['timestamp'], score, max_s, percentage])
         
     output.seek(0)
     
@@ -306,24 +401,43 @@ def export_history():
     )
 
 @app.route('/history/delete/<result_id>', methods=['POST'])
+@login_required
 def delete_history(result_id):
-    results = data_manager.load_results()
-    results = [r for r in results if r['id'] != result_id]
-    data_manager.save_results(results)
+    # Check permission: admin can delete any, user can only delete own
+    record = data_manager.get_result(result_id)
+    if not record:
+        flash('记录未找到', 'error')
+        return redirect(url_for('history'))
+        
+    if not current_user.is_admin and record.get('user_id') != current_user.id:
+        flash('您没有权限删除此记录', 'danger')
+        return redirect(url_for('history'))
+
+    data_manager.delete_result(result_id)
     flash('记录已删除', 'success')
     return redirect(url_for('history'))
 
 @app.route('/history/view/<result_id>')
+@login_required
 def view_history(result_id):
-    results = data_manager.load_results()
-    record = next((r for r in results if r['id'] == result_id), None)
+    record = data_manager.get_result(result_id)
     if not record:
         flash('记录未找到', 'error')
         return redirect(url_for('history'))
+        
+    if not current_user.is_admin and record.get('user_id') != current_user.id:
+        flash('您没有权限查看此记录', 'danger')
+        return redirect(url_for('history'))
+        
     return render_template('result.html', total_score=record['total_score'], results=record['details'], is_history=True)
 
 @app.route('/add', methods=['GET', 'POST'])
+@login_required
 def add():
+    if not current_user.is_admin:
+        flash('您没有权限访问该页面', 'danger')
+        return redirect(url_for('index'))
+        
     if request.method == 'POST':
         # Handle list of values
         contents = request.form.getlist('content[]')

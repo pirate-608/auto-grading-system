@@ -20,5 +20,9 @@ $(BUILD_DIR):
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
+	del *.o
+	if exist $(BUILD_DIR) rmdir /s /q $(BUILD_DIR)
+
+clean:
 	del /Q $(OBJ)
 	if exist $(BUILD_DIR) rmdir /S /Q $(BUILD_DIR)

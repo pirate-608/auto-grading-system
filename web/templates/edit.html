@@ -2,7 +2,7 @@
 
 {% block content %}
 <h2 class="mb-4">编辑题目</h2>
-<form method="POST" action="{{ url_for('edit_question', index=index) }}" enctype="multipart/form-data">
+<form method="POST" action="{{ url_for('edit_question', id=id) }}" enctype="multipart/form-data">
     <div class="mb-3">
         <label for="content" class="form-label">题目描述</label>
         <textarea class="form-control" id="content" name="content" rows="5" required>{{ question.content }}</textarea>

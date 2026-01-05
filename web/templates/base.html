@@ -22,25 +22,49 @@
                 <div class="collapse navbar-collapse" id="navbarMain">
                     <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                         {% if not session.get('in_exam') %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="/">首页</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/start_exam">开始考试</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/add">添加题目</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/manage">管理题目</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/history">历史记录</a>
-                        </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="/">首页</a>
+                            </li>
+                            {% if current_user.is_authenticated %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="/start_exam">开始考试</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="/history">历史记录</a>
+                                </li>
+                                {% if current_user.is_admin %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="/add">添加题目</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="/manage">管理题目</a>
+                                </li>
+                                {% endif %}
+                            {% endif %}
                         {% else %}
-                        <li class="nav-item">
-                            <span class="nav-link active text-danger fw-bold">⚠️ 考试进行中</span>
-                        </li>
+                            <li class="nav-item">
+                                <span class="nav-link active text-danger fw-bold">⚠️ 考试进行中</span>
+                            </li>
+                        {% endif %}
+                    </ul>
+                    <ul class="navbar-nav ms-auto">
+                        {% if current_user.is_authenticated %}
+                            <li class="nav-item">
+                                <span class="nav-link text-muted">
+                                    👤 {{ current_user.username }}
+                                    {% if current_user.is_admin %}<span class="badge bg-danger">管理员</span>{% endif %}
+                                </span>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('logout') }}">退出</a>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('login') }}">登录</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('register') }}">注册</a>
+                            </li>
                         {% endif %}
                     </ul>
                 </div>

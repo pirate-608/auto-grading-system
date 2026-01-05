@@ -9,6 +9,12 @@ class Config:
     DATA_FILE = os.path.join(BASE_DIR, 'questions.txt')
     RESULTS_FILE = os.path.join(BASE_DIR, 'results.json')
     
+    # Database config
+    WEB_DIR = os.path.dirname(os.path.abspath(__file__))
+    INSTANCE_PATH = os.path.join(WEB_DIR, 'instance')
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(INSTANCE_PATH, 'data.db')
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
     # Uploads
     UPLOAD_FOLDER = os.path.join(BASE_DIR, 'web', 'static', 'uploads')
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
